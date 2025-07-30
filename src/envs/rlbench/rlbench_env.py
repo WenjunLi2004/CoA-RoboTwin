@@ -14,7 +14,7 @@
 
 from scipy.spatial.transform import Rotation as R
 import wandb
-import clip 
+import clip
 import os
 import time
 import importlib
@@ -23,7 +23,7 @@ from typing import List
 from enum import Enum
 from functools import partial
 import copy
-
+import pdb
 from omegaconf import DictConfig
 from pyrep.const import RenderMode
 from pyrep.objects import Dummy, VisionSensor
@@ -44,7 +44,6 @@ from src.envs.rlbench.wrappers import (
     TimeLimitX,
 )
 
-
 from src.utils import (
     rescale_demo_actions,
 )
@@ -55,6 +54,7 @@ from src.envs.rlbench.wrappers.rescale_from_tanh import get_action_space_from_cf
 from src.envs.rlbench.rlbench_utils import get_stored_demos
 from src.envs.rlbench.rlbench_utils import get_stored_demos_in_pkl
 from src.envs.rlbench.arm_action_modes import EndEffectorPoseViaPlanningX
+
 try:
     from rlbench import ObservationConfig, Environment, CameraConfig
     from rlbench.action_modes.action_mode import MoveArmThenGripper
@@ -74,6 +74,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+
 class ActionModeType(Enum):
     ABS_END_EFFECTOR_POSE = "abs_ee_pose"
     ABS_JOINT_POSITION = "abs_joint_pos"
@@ -81,38 +82,53 @@ class ActionModeType(Enum):
     DEL_JOINT_POSITION = "del_joint_pos"
     HYBRID = "hybrid"
 
-ACTION_BOUNDS = {
-    ActionModeType.ABS_END_EFFECTOR_POSE :(
-                    np.array(
-                        [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
-                        dtype=np.float32,
-                    ),
-                    np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
-                ),
-    ActionModeType.ABS_JOINT_POSITION: (
-                    np.array(7 * [-np.pi] + [0.0], dtype=np.float32), #  I'm not sure, to be fixed
-                    np.array(7 * [np.pi] + [1.0], dtype=np.float32),
-                ),
-    ActionModeType.DEL_END_EFFECTOR_POSE: ( # TODO: to be fixed
-                    np.array(
-                        [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
-                        dtype=np.float32,
-                    ),
-                    np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
-                ),
-    ActionModeType.DEL_JOINT_POSITION: (
-                    np.array(7 * [-np.pi] + [0.0], dtype=np.float32),
-                    np.array(7 * [np.pi] + [1.0], dtype=np.float32),
-                ),
-    ActionModeType.HYBRID: (
-                    np.array(
-                        [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
-                        dtype=np.float32,
-                    ),
-                    np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
-                ),
-}
 
+ACTION_BOUNDS = {
+    ActionModeType.ABS_END_EFFECTOR_POSE: (
+        #                 np.array(
+        #                     [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0], #
+        #                     dtype=np.float32,
+        #                 ),
+        #                 np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
+
+        np.array(  # 修改维度 8改为16
+            # 左臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [-0.28, -0.66, 0.75] + 4 * [-1.0] + [0.0] +
+            # 右臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [-0.28, -0.66, 0.75] + 4 * [-1.0] + [0.0],
+            dtype=np.float32,
+        ),
+        np.array(
+            # 左臂上界：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [0.78, 0.66, 1.75] + 4 * [1.0] + [1.0] +
+            # 右臂上界：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [0.78, 0.66, 1.75] + 4 * [1.0] + [1.0],
+            dtype=np.float32
+        ),
+    ),
+    ActionModeType.ABS_JOINT_POSITION: (
+        np.array(7 * [-np.pi] + [0.0], dtype=np.float32),  # I'm not sure, to be fixed
+        np.array(7 * [np.pi] + [1.0], dtype=np.float32),
+    ),
+    ActionModeType.DEL_END_EFFECTOR_POSE: (  # TODO: to be fixed
+        np.array(
+            [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
+            dtype=np.float32,
+        ),
+        np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
+    ),
+    ActionModeType.DEL_JOINT_POSITION: (
+        np.array(7 * [-np.pi] + [0.0], dtype=np.float32),
+        np.array(7 * [np.pi] + [1.0], dtype=np.float32),
+    ),
+    ActionModeType.HYBRID: (
+        np.array(
+            [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
+            dtype=np.float32,
+        ),
+        np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
+    ),
+}
 
 ROBOT_STATE_KEYS = [
     "joint_velocities",
@@ -133,6 +149,7 @@ TASK_TO_LOW_DIM_SIM = {
     "take_lid_off_saucepan": 7,
 }
 
+
 def _get_cam_observation_elements(camera: CameraConfig, prefix: str):
     space_dict = {}
     img_s = camera.image_size
@@ -142,7 +159,7 @@ def _get_cam_observation_elements(camera: CameraConfig, prefix: str):
         )
 
     # TODO: point cloud is not supported yet
-    # if camera.point_cloud: 
+    # if camera.point_cloud:
     #     space_dict["%s_point_cloud" % prefix] = spaces.Box(
     #         -np.inf, np.inf, shape=(3,) + img_s, dtype=np.float32
     #     )
@@ -152,12 +169,12 @@ def _get_cam_observation_elements(camera: CameraConfig, prefix: str):
     #     space_dict["point_cloud_merge_color"] = spaces.Box(
     #         -np.inf, np.inf, shape=(4096, 6), dtype=np.float32 # to be fixed
     #     )
-        # space_dict["%s_camera_extrinsics" % prefix] = spaces.Box(
-        #     -np.inf, np.inf, shape=(4, 4), dtype=np.float32
-        # )
-        # space_dict["%s_camera_intrinsics" % prefix] = spaces.Box(
-        #     -np.inf, np.inf, shape=(3, 3), dtype=np.float32
-        # )
+    # space_dict["%s_camera_extrinsics" % prefix] = spaces.Box(
+    #     -np.inf, np.inf, shape=(4, 4), dtype=np.float32
+    # )
+    # space_dict["%s_camera_intrinsics" % prefix] = spaces.Box(
+    #     -np.inf, np.inf, shape=(3, 3), dtype=np.float32
+    # )
 
     if camera.depth:
         space_dict["%s_depth" % prefix] = spaces.Box(
@@ -171,9 +188,9 @@ def _get_cam_observation_elements(camera: CameraConfig, prefix: str):
 def _observation_config_to_gym_space(observation_config, action_mode_type) -> spaces.Dict:
     space_dict = {}
     if action_mode_type == ActionModeType.HYBRID:
-         robot_state_len = 15
+        robot_state_len = 15
     elif action_mode_type == ActionModeType.ABS_JOINT_POSITION or action_mode_type == ActionModeType.ABS_END_EFFECTOR_POSE:
-        robot_state_len = 8
+        robot_state_len = 16  # 8改为16
     if robot_state_len > 0:
         space_dict["low_dim_state"] = spaces.Box(
             -np.inf, np.inf, shape=(robot_state_len,), dtype=np.float32
@@ -182,7 +199,7 @@ def _observation_config_to_gym_space(observation_config, action_mode_type) -> sp
         (observation_config.left_shoulder_camera, "left_shoulder"),
         (observation_config.right_shoulder_camera, "right_shoulder"),
         (observation_config.front_camera, "front"),
-        (observation_config.wrist_camera, "wrist"),
+        # (observation_config.wrist_camera, "wrist"), # 注释了一个摄像头
         (observation_config.overhead_camera, "overhead"),
     ]:
         space_dict.update(_get_cam_observation_elements(cam, name))
@@ -208,15 +225,43 @@ def _name_to_task_class(task_file: str):
     return task_class
 
 
-
-
 def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
     next_is_not_final = i == (len(demo) - 2)
-    gripper_state_no_change = (
+    # FIXME wenjun
+    if i < (len(demo) - 2):
+        current_left_gripper_open = True if obs.gripper_pose[7] > 0.5 else False
+        current_right_gripper_open = True if obs.gripper_pose[15] > 0.5 else False
+        next_left_gripper_open = True if demo[i + 1].gripper_pose[7] > 0.5 else False
+        next_right_gripper_open = True if demo[i + 1].gripper_pose[15] > 0.5 else False
+        before_left_gripper_open = True if demo[i - 1].gripper_pose[7] > 0.5 else False
+        before_right_gripper_open = True if demo[i - 1].gripper_pose[15] > 0.5 else False
+        before2_left_gripper_open = True if demo[i - 2].gripper_pose[7] > 0.5 else False
+        before2_right_gripper_open = True if demo[i - 2].gripper_pose[15] > 0.5 else False
+
+    # 判断左臂停止
+
+    left_gripper_stopped = (
             i < (len(demo) - 2) and
-            (obs.gripper_open == demo[i + 1].gripper_open and
-             obs.gripper_open == demo[i - 1].gripper_open and
-             demo[i - 2].gripper_open == demo[i - 1].gripper_open))
+            (current_left_gripper_open == next_left_gripper_open and
+             current_left_gripper_open == before_left_gripper_open and
+             before2_left_gripper_open == before_left_gripper_open)
+    )
+    # 判断右臂停止
+    right_gripper_stopped = (
+            i < (len(demo) - 2) and
+            (current_right_gripper_open == next_right_gripper_open and
+             current_right_gripper_open == before_right_gripper_open and
+             before2_right_gripper_open == before_right_gripper_open)
+    )
+    # gripper_state_no_change = (
+    #         i < (len(demo) - 2) and
+    #         (obs.gripper_open == demo[i + 1].gripper_open and
+    #          obs.gripper_open == demo[i - 1].gripper_open and
+    #          demo[i - 2].gripper_open == demo[i - 1].gripper_open))
+    # )
+    gripper_state_no_change = (
+            i < (len(demo) - 2) and left_gripper_stopped and right_gripper_stopped
+    )
     small_delta = np.allclose(obs.joint_velocities, 0, atol=delta)
     stopped = (stopped_buffer <= 0 and small_delta and
                (not next_is_not_final) and gripper_state_no_change)
@@ -224,7 +269,7 @@ def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
 
 
 def keypoint_discovery(
-    demo: Demo, stopping_delta: float = 0.01, method: str = "heuristic"
+        demo: Demo, stopping_delta: float = 0.01, method: str = "heuristic"
 ) -> list[int]:
     """Discover next-best-pose keypoints in a demonstration based on specified method.
 
@@ -243,17 +288,28 @@ def keypoint_discovery(
     """
     episode_keypoints = []
     if method == 'heuristic':
-        prev_gripper_open = demo[0].gripper_open
+        # prev_gripper_open = demo[0].gripper_open  FIXME wenjun
+        prev_left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False  # 区分左和右 FIXME wenjun
+        prev_right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
+
         stopped_buffer = 0
         for i, obs in enumerate(demo):
             stopped = _is_stopped(demo, i, obs, stopped_buffer, stopping_delta)
             stopped_buffer = 4 if stopped else stopped_buffer - 1
             # If change in gripper, or end of episode.
             last = i == (len(demo) - 1)
-            if i != 0 and (obs.gripper_open != prev_gripper_open or
-                           last or stopped):
+            # FIXME wenjun
+            left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False
+            right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
+            # if i != 0 and (obs.gripper_open != prev_gripper_open or
+            #                last or stopped):
+            if i != 0 and (
+                    left_gripper_open != prev_left_gripper_open or right_gripper_open != prev_right_gripper_open or last or stopped):
                 episode_keypoints.append(i)
-            prev_gripper_open = obs.gripper_open
+            # prev_gripper_open = obs.gripper_open FIXME wenjun
+            prev_left_gripper_open = left_gripper_open
+            prev_right_gripper_open = right_gripper_open
+
         if len(episode_keypoints) > 1 and (episode_keypoints[-1] - 1) == \
                 episode_keypoints[-2]:
             episode_keypoints.pop(-2)
@@ -284,20 +340,20 @@ class RLBenchEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"], "render_fps": 4}
 
     def __init__(
-        self,
-        task_name: str,
-        observation_config: ObservationConfig,
-        action_mode: ActionMode,
-        action_mode_type: ActionModeType = ActionModeType.DEL_JOINT_POSITION,
-        arm_max_velocity: float = 1.0,
-        arm_max_acceleration: float = 4.0,
-        dataset_root_train: str = "",
-        dataset_root_eval: str = "",
-        renderer: str = "opengl",
-        headless: bool = True,
-        render_mode: str = None,
-        use_lang_cond: bool = False,
-        cfg: DictConfig = None,
+            self,
+            task_name: str,
+            observation_config: ObservationConfig,
+            action_mode: ActionMode,
+            action_mode_type: ActionModeType = ActionModeType.DEL_JOINT_POSITION,
+            arm_max_velocity: float = 1.0,
+            arm_max_acceleration: float = 4.0,
+            dataset_root_train: str = "",
+            dataset_root_eval: str = "",
+            renderer: str = "opengl",
+            headless: bool = True,
+            render_mode: str = None,
+            use_lang_cond: bool = False,
+            cfg: DictConfig = None,
     ):
         self._task_name = task_name
         self._observation_config = observation_config
@@ -330,10 +386,10 @@ class RLBenchEnv(gym.Env):
 
     def get_observation_config(self):
         return self._observation_config
-    
+
     def get_action_mode_type(self):
         return self._action_mode_type
-    
+
     def _launch(self):
         task_class = _name_to_task_class(self._task_name)
         self._rlbench_env = Environment(
@@ -369,7 +425,6 @@ class RLBenchEnv(gym.Env):
         if self.render_mode == "rgb_array":
             return self._render_frame()
 
-
     def step(self, action):
         # assert self.cfg.action_mode == ActionModeType:
         # if self._action_mode_type == ActionModeType.HYBRID:
@@ -377,7 +432,8 @@ class RLBenchEnv(gym.Env):
         if self._action_mode_type == ActionModeType.HYBRID:
             action = np.concatenate((action[:7], action[-1:]), axis=-1)
         rlb_obs, reward, term = self._task.step(action)
-        obs = _extract_obs(rlb_obs, self._observation_config, training=False, cfg=self._cfg, action_space=self.action_space)
+        obs = _extract_obs(rlb_obs, self._observation_config, training=False, cfg=self._cfg,
+                           action_space=self.action_space)
         return obs, reward, term, False, {"demo": 0, "task_success": int(reward > 0)}
 
     def reset(self, seed=None, options=None, robot_state_keys: dict = None):
@@ -386,7 +442,8 @@ class RLBenchEnv(gym.Env):
             self._launch()
         desc, rlb_obs = self._task.reset()
 
-        obs = _extract_obs(rlb_obs, self._observation_config, robot_state_keys, training=False, cfg=self._cfg, action_space=self.action_space)
+        obs = _extract_obs(rlb_obs, self._observation_config, robot_state_keys, training=False, cfg=self._cfg,
+                           action_space=self.action_space)
         info = {"demo": 0}
         if self._use_lang_cond:
             info["desc"] = desc
@@ -400,15 +457,17 @@ class RLBenchEnv(gym.Env):
         variation_index = demo._observations[0].misc["variation_index"]
         self._task.set_variation(variation_index)
         desc, rlb_obs = self._task.reset(demo)
-        obs = _extract_obs(rlb_obs, self._observation_config, robot_state_keys, training=False, cfg=self._cfg, action_space=self.action_space)
+        obs = _extract_obs(rlb_obs, self._observation_config, robot_state_keys, training=False, cfg=self._cfg,
+                           action_space=self.action_space)
         info = {"demo": 0}
         if self._use_lang_cond:
             info["desc"] = desc
         return obs, info
-    
+
     def close(self):
         if self._rlbench_env is not None:
             self._rlbench_env.shutdown()
+
 
 def _make_obs_config(cfg: DictConfig):
     pixels = cfg.pixels
@@ -442,10 +501,6 @@ def _make_obs_config(cfg: DictConfig):
     return obs_config
 
 
-
-
-
-
 def _get_spaces(cfg, space_list):
     obs_config = _make_obs_config(cfg)
     rlb_env = _make_env(cfg, obs_config)
@@ -455,25 +510,23 @@ def _get_spaces(cfg, space_list):
     rlb_env.close()
 
 
-
 def _get_action_mode(action_mode_type: ActionModeType):
-    
     class CustomMoveArmThenGripper(MoveArmThenGripper):
         def action_bounds(self):
             return ACTION_BOUNDS[action_mode_type]
-    
+
     # Select arm action mode according to action mode type
-    if action_mode_type ==  ActionModeType.ABS_END_EFFECTOR_POSE:
+    if action_mode_type == ActionModeType.ABS_END_EFFECTOR_POSE:
         arm_mode = EndEffectorPoseViaPlanningX(absolute_mode=True)
     elif action_mode_type == ActionModeType.DEL_END_EFFECTOR_POSE:
         arm_mode = EndEffectorPoseViaPlanningX(absolute_mode=False)
     elif action_mode_type == ActionModeType.DEL_JOINT_POSITION:
-        arm_mode = JointPosition(False)  
+        arm_mode = JointPosition(False)
     elif action_mode_type == ActionModeType.ABS_JOINT_POSITION:
-        arm_mode = JointPosition(True)   
+        arm_mode = JointPosition(True)
     else:
         raise ValueError(f"Unsupported action mode type: {action_mode_type}")
-    
+
     return CustomMoveArmThenGripper(arm_mode, Discrete())
 
 
@@ -487,7 +540,7 @@ class RLBenchEnvFactory(EnvFactory):
             rescale_from_tanh_cls = MinMaxNorm
         else:
             assert not (
-                cfg.use_standardization and cfg.use_min_max_normalization
+                    cfg.use_standardization and cfg.use_min_max_normalization
             ), "You can't use both standardization and min/max normalization."
             if cfg.use_standardization:
                 # Use demo-based standardization for actions
@@ -508,7 +561,7 @@ class RLBenchEnvFactory(EnvFactory):
                 rescale_from_tanh_cls = RescaleFromTanh
         # env = action_filter(env)
         env = rescale_from_tanh_cls(env)
-        env = TimeLimitX(env, cfg.env.episode_length//cfg.env.episode_length_decay_rate)
+        env = TimeLimitX(env, cfg.env.episode_length // cfg.env.episode_length_decay_rate)
         # if cfg.use_onehot_time_and_no_bootstrap:
         #     env = OnehotTime(env, cfg.env.episode_length//cfg.env.episode_length_decay_rate)
 
@@ -529,11 +582,11 @@ class RLBenchEnvFactory(EnvFactory):
             else:
                 if cfg.method_name == "coa":
                     env = ReverseTemporalEnsemble(
-                    env,
-                    cfg.action_sequence,
-                    cfg.env.episode_length,
-                    cfg.execution_length,
-                    cfg.temporal_ensemble,
+                        env,
+                        cfg.action_sequence,
+                        cfg.env.episode_length,
+                        cfg.execution_length,
+                        cfg.temporal_ensemble,
                         cfg.temporal_ensemble_gain,
                         action_order="REVERSE"
                     )
@@ -572,14 +625,14 @@ class RLBenchEnvFactory(EnvFactory):
             _make_env(cfg, obs_config), cfg, return_raw_spaces=True
         )
         return env
-    
+
     def get_action_space(self, cfg):
         return get_action_space_from_cfg(cfg)
 
-    def _load_demos(self, cfg,training=True):
+    def _load_demos(self, cfg, training=True):
         self.training = training
         dataset_root_dir = cfg.dataset_root_train
-        
+
         obs_config = _make_obs_config(cfg)
         obs_config_demo = copy.deepcopy(obs_config)
         num_demos = cfg.demos if training else cfg.num_eval_episodes
@@ -591,14 +644,14 @@ class RLBenchEnvFactory(EnvFactory):
         # for demo and rollout steps.
 
         action_mode_type = getattr(ActionModeType, cfg.env.action_mode)
-        if action_mode_type in [ActionModeType.ABS_END_EFFECTOR_POSE, ActionModeType.HYBRID, ActionModeType.DEL_END_EFFECTOR_POSE]:
+        if action_mode_type in [ActionModeType.ABS_END_EFFECTOR_POSE, ActionModeType.HYBRID,
+                                ActionModeType.DEL_END_EFFECTOR_POSE]:
             for attr in ['joint_velocities', 'gripper_matrix', 'task_low_dim_state', 'gripper_pose']:
                 setattr(obs_config_demo, attr, True)
         elif action_mode_type in [ActionModeType.DEL_JOINT_POSITION, ActionModeType.ABS_JOINT_POSITION]:
             obs_config_demo.joint_velocities = True
         else:
             raise ValueError(f"Unsupported action mode type: {cfg.env.action_mode}")
-
 
         demo_state_keys = copy.deepcopy(ROBOT_STATE_KEYS)
 
@@ -628,7 +681,7 @@ class RLBenchEnvFactory(EnvFactory):
                 0,
                 cfg.env.task_name,
                 obs_config_demo,
-                random_selection =False,
+                random_selection=False,
                 from_episode_number=0,
             )
         else:
@@ -639,7 +692,7 @@ class RLBenchEnvFactory(EnvFactory):
                 0,
                 cfg.env.task_name,
                 obs_config_demo,
-                random_selection =False,
+                random_selection=False,
                 from_episode_number=0,
             )
 
@@ -670,9 +723,7 @@ class RLBenchEnvFactory(EnvFactory):
         '''
         demos_to_load = self._convert_demos_to_loaded_format(demos, cfg)
 
-
         return demos_to_load, action_sequence
-
 
     def _update_action_sequence_length(self, cfg, demos_to_load):
         '''
@@ -690,7 +741,7 @@ class RLBenchEnvFactory(EnvFactory):
             assert max_sequence_length > 0
 
         return max_sequence_length
-    
+
     def _traj_split(self, demos):
         '''
         Core design of Chain-of-Action:
@@ -706,22 +757,21 @@ class RLBenchEnvFactory(EnvFactory):
         for idx_demo, demo in enumerate(demos):
             episode_keypoints = keypoint_discovery(demo)
             # modify key point if it is too close to the beginning
-            if episode_keypoints[0]<10:
-                assert len(episode_keypoints)>1
+            if episode_keypoints[0] < 10:
+                assert len(episode_keypoints) > 1
                 episode_keypoints[0] = 0
             else:
-                episode_keypoints = [0,] + episode_keypoints
-            for idx in range(len(episode_keypoints)-1):
+                episode_keypoints = [0, ] + episode_keypoints
+            for idx in range(len(episode_keypoints) - 1):
                 next_idx = idx + 1
-                nbp_demo = demo[episode_keypoints[idx]:episode_keypoints[next_idx]+1]
-                # nbp_demo[-1].grippe  r_open = nbp_demo[-2].gripper_open 
+                nbp_demo = demo[episode_keypoints[idx]:episode_keypoints[next_idx] + 1]
+                # nbp_demo[-1].grippe  r_open = nbp_demo[-2].gripper_open
                 nbp_demos.append(nbp_demo)
         return nbp_demos
-    
 
-    def _convert_demos_to_loaded_format(self, 
-        raw_demos, cfg=None
-    ) -> List[List[DemoStep]]:
+    def _convert_demos_to_loaded_format(self,
+                                        raw_demos, cfg=None
+                                        ) -> List[List[DemoStep]]:
         """Converts demos generated in rlbench to the common DemoStep format.
 
         Args:
@@ -743,20 +793,24 @@ class RLBenchEnvFactory(EnvFactory):
                     DemoStep(
                         timestep.joint_positions,
                         timestep.gripper_open,
-                        _extract_obs(timestep, cfg=cfg, action_space=self.get_action_space(cfg), training=self.training),
+                        timestep.gripper_pose,  # FIXME wenjun 增加pose
+                        _extract_obs(timestep, cfg=cfg, action_space=self.get_action_space(cfg),
+                                     training=self.training),
                         timestep.gripper_matrix,
                         timestep.misc,
                     )
                 )
             converted_demos.append(converted_demo)
- 
+
         # convert raw gripper matrix and gripper state to action_abs_joint and action_abs_ee
-        # add descriptions 
+        # add descriptions
         for demo in converted_demos:
             for i in range(len(demo)):
                 demo_step = demo[i]
                 # demo_step[ActionModeType.ABS_JOINT_POSITION] = observations_to_action_abs_joint(demo_step) # TODO: To be implemented
-                demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value] = observations_to_action_abs_ee(demo_step)
+                action = observations_to_action_abs_ee(demo_step)
+                print(f"Demo step {i}: action shape = {action.shape}")
+                demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value] = action
                 if "descriptions" in demo_step.misc and cfg.method.use_lang_cond:
                     descriptions = demo_step.misc["descriptions"][0]
                     # desc = descriptions[np.random.randint(len(descriptions))]
@@ -767,37 +821,39 @@ class RLBenchEnvFactory(EnvFactory):
 
         # convert converted_demos. Original each demo is oranlized as list of frame dict
         # keys contain obs and action, reward, terminal, truncated, info....
-        # now each demo is a dict of this items stacked over all frames 
+        # now each demo is a dict of this items stacked over all frames
         demos_trans = []
         for demo in converted_demos:
             demo = {key: np.stack([d[key] for d in demo], axis=0) for key in demo[0]}
             demos_trans.append(demo)
-      
+
         return demos_trans
 
     def _normalize_demo_actions(self, converted_demos, cfg):
         """简洁的action normalization实现"""
         action_space = self.get_action_space(cfg)
-        for demo in converted_demos:
-            for demo_step in demo:
+        print(f"Action space bounds shape: {action_space.low.shape}, {action_space.high.shape}")
+
+        for demo_idx, demo in enumerate(converted_demos):
+            for step_idx, demo_step in enumerate(demo):
                 # TODO: To be implemented
                 # Normalize ABS_JOINT_POSITION actions
                 # if ActionModeType.ABS_JOINT_POSITION in demo_step and demo_step[ActionModeType.ABS_JOINT_POSITION] is not None:
                 #     demo_step[ActionModeType.ABS_JOINT_POSITION] = MinMaxNorm.normalize(
                 #         demo_step[ActionModeType.ABS_JOINT_POSITION], action_space
                 #     )
-                
-                # Normalize ABS_END_EFFECTOR_POSE actions  
-                if ActionModeType.ABS_END_EFFECTOR_POSE.value in demo_step and demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value] is not None:
-                    demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value] = MinMaxNorm.normalize(
-                        demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value], action_space
-                    )
 
+                # Normalize ABS_END_EFFECTOR_POSE actions
+                if ActionModeType.ABS_END_EFFECTOR_POSE.value in demo_step and demo_step[
+                    ActionModeType.ABS_END_EFFECTOR_POSE.value] is not None:
+                    action = demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value]
+                    print(f"Demo {demo_idx}, Step {step_idx}: action shape before normalize = {action.shape}")
+                    demo_step[ActionModeType.ABS_END_EFFECTOR_POSE.value] = MinMaxNorm.normalize(
+                        action, action_space
+                    )
 
     def get_action_stats(self):
         return self._action_stats
-
-        
 
     def _compute_action_stats(self, demos: List[List[DemoStep]]):
         """Compute statistics from demonstration actions, which could be useful for
@@ -833,9 +889,9 @@ class RLBenchEnvFactory(EnvFactory):
 
 
 def observations_to_action(
-    ActionModeType: ActionModeType,
-    observation: DemoStep,
-    action_space: Box,
+        ActionModeType: ActionModeType,
+        observation: DemoStep,
+        action_space: Box,
 ):
     """Calculates the action linking two sequential observations.
 
@@ -860,10 +916,11 @@ def observations_to_action(
     ).astype(np.float32)
     return action
 
+
 def observations_to_action_with_onehot_gripper_abs_ee(
-    current_observation: DemoStep,
-    # next_observation: DemoStep,
-    action_space: Box = None,
+        current_observation: DemoStep,
+        # next_observation: DemoStep,
+        action_space: Box = None,
 ):
     """Calculates the action linking two sequential observations.
 
@@ -894,7 +951,7 @@ def observations_to_action_with_onehot_gripper_abs_ee(
     )
     if action_space is not None:
         if np.any(action[:-1] > action_space.high[:-1]) or np.any(
-            action[:-1] < action_space.low[:-1]
+                action[:-1] < action_space.low[:-1]
         ):
             warnings.warn(
                 "Action outside action space.",
@@ -923,11 +980,10 @@ def _make_env(cfg: DictConfig, obs_config: dict):
         use_lang_cond=cfg.method.get("use_lang_cond", False),
         cfg=cfg,
     )
-    
 
-    
+
 def observations_to_action_abs_joint(
-    current_observation: DemoStep,
+        current_observation: DemoStep,
 ):
     """Calculates the action linking two sequential observations.
 
@@ -954,18 +1010,19 @@ def observations_to_action_abs_joint(
     action_space = ACTION_BOUNDS[ActionModeType.ABS_JOINT_POSITION]
 
     if np.any(action[:-1] > action_space[1][:-1]) or np.any(
-        action[:-1] < action_space[0][:-1]
+            action[:-1] < action_space[0][:-1]
     ):
         warnings.warn(
             "Action outside action space.",
             UserWarning,
         )
         return None
-    
+
     return action
 
+
 def observations_to_action_abs_ee(
-    current_observation: DemoStep,
+        current_observation: DemoStep,
 
 ):
     """Calculates the action linking two sequential observations.
@@ -980,21 +1037,31 @@ def observations_to_action_abs_ee(
             outside action_space.
     """
 
-    action_trans = current_observation.gripper_matrix[:3, 3]
+    # 从gripper_pose直接提取双臂数据（16维）
+    # gripper_pose结构：[left_endpose(7) + left_gripper(1) + right_endpose(7) + right_gripper(1)]
+    gripper_pose = current_observation.gripper_pose  # 16维数组
 
-    rot = R.from_matrix(current_observation.gripper_matrix[:3, :3])
-    action_orien = rot.as_quat(
-        canonical=True
-    )  # Enforces w component always positive and unit vector
+    # 左臂动作提取
+    left_action_trans = gripper_pose[:3]  # 左臂位置 (x,y,z)
+    left_action_orien = gripper_pose[3:7]  # 左臂四元数 (qx,qy,qz,qw)
+    left_action_gripper = [gripper_pose[7]]  # 左臂夹爪状态
 
-    action_gripper = [1.0 if current_observation.gripper_open == 1 else 0.0]
-    action = np.concatenate(
-        [
-            action_trans,
-            action_orien,
-            action_gripper,
-        ]
-    )
+    # 右臂动作提取
+    right_action_trans = gripper_pose[8:11]  # 右臂位置 (x,y,z)
+    right_action_orien = gripper_pose[11:15]  # 右臂四元数 (qx,qy,qz,qw)
+    right_action_gripper = [gripper_pose[15]]  # 右臂夹爪状态
+
+    # 组合成16维双臂动作
+    action = np.concatenate([
+        # 左臂8维
+        left_action_trans,  # 3维
+        left_action_orien,  # 4维
+        left_action_gripper,  # 1维
+        # 右臂8维
+        right_action_trans,  # 3维
+        right_action_orien,  # 4维
+        right_action_gripper,  # 1维
+    ])
 
     action_space = ACTION_BOUNDS[ActionModeType.ABS_END_EFFECTOR_POSE]
 
@@ -1007,41 +1074,49 @@ def observations_to_action_abs_ee(
     #         UserWarning,
     #     )
     #     return None
-    
+
     return action
 
 
-def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=None, training=True, cfg=None, action_space=None):
+def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=None, training=True, cfg=None,
+                 action_space=None):
     '''
     Extract the necessary observation from offline/online raw data from rlbench env.
     Filter to keep only essential data: RGB cameras (based on config) and low_dim_state.
     Optionally filter out point cloud data when training.
     '''
-    
+
     # Construct low-dimensional state data (joint positions + gripper state)
-    assert ActionModeType[cfg.env.action_mode] in [ActionModeType.ABS_END_EFFECTOR_POSE, ActionModeType.ABS_JOINT_POSITION], "Only ABS_END_EFFECTOR_POSE and ABS_JOINT_POSITION are supported now. Low dim state norm always use abs action space. It it gets wrong with DEL_END_EFFECTOR_POSE and DEL_JOINT_POSITION for current implementation."
-    if ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_END_EFFECTOR_POSE or ActionModeType[cfg.env.action_mode] == ActionModeType.DEL_END_EFFECTOR_POSE:
-        low_dim_state = np.concatenate([obs.gripper_pose,[obs.gripper_open]],dtype=np.float32)
+    assert ActionModeType[cfg.env.action_mode] in [ActionModeType.ABS_END_EFFECTOR_POSE,
+                                                   ActionModeType.ABS_JOINT_POSITION], "Only ABS_END_EFFECTOR_POSE and ABS_JOINT_POSITION are supported now. Low dim state norm always use abs action space. It it gets wrong with DEL_END_EFFECTOR_POSE and DEL_JOINT_POSITION for current implementation."
+    if ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_END_EFFECTOR_POSE or ActionModeType[
+        cfg.env.action_mode] == ActionModeType.DEL_END_EFFECTOR_POSE:
+        # 对于双臂系统，使用16维的joint_positions而不是8维的gripper_pose
+        # joint_positions已经包含了双臂末端位姿+夹爪状态（16维）
+        low_dim_state = obs.gripper_pose.astype(np.float32)
+        print(f"Low dim state shape: {low_dim_state.shape}")
+        print(f"obs.gripper_pose shape: {obs.gripper_pose.shape}")
         low_dim_state = MinMaxNorm.normalize(low_dim_state, action_space)
-    elif ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_JOINT_POSITION or ActionModeType[cfg.env.action_mode] == ActionModeType.DEL_JOINT_POSITION:
-        low_dim_state = np.concatenate([obs.joint_positions,[obs.gripper_open]],dtype=np.float32)
-        low_dim_state = RescaleFromTanh.transform_to_tanh(low_dim_state, action_space)
+    elif ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_JOINT_POSITION or ActionModeType[
+        cfg.env.action_mode] == ActionModeType.DEL_JOINT_POSITION:
+        low_dim_state = np.concatenate([obs.joint_positions, [obs.gripper_open]], dtype=np.float32)
+        low_dim_state = RescaleFromTanh.transform_from_tanh(low_dim_state, action_space)
     else:
         raise ValueError(f"Unsupported action mode type: {ActionModeType[cfg.env.action_mode]}")
-    
+
     # Get all observation data
     obs_dict = vars(obs)
-    
+
     # Filter data: keep only RGB camera data and low-dimensional state
     filtered_obs_dict = {"low_dim_state": low_dim_state}
-    
+
     # Dynamically determine which cameras to use based on config
     if cfg is not None and hasattr(cfg.env, 'cameras'):
         enabled_cameras = cfg.env.cameras
     else:
         # By default, use all available cameras
         enabled_cameras = ["front", "wrist", "left_shoulder", "right_shoulder", "overhead"]
-    
+
     # Add specified RGB camera data, filter out depth, mask, point_cloud, etc.
     for k, v in obs_dict.items():
         if v is not None and k not in ROBOT_STATE_KEYS:
@@ -1056,7 +1131,7 @@ def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=Non
                 filtered_obs_dict[k] = v
             # During training, filter out all point cloud, depth, mask
             # Other types of data can be added as needed
-    
+
     # Data format conversion: convert images from (H,W,C) to (C,H,W), add batch dimension to low_dim_state
     final_obs_dict = {}
     for k, v in filtered_obs_dict.items():
@@ -1067,18 +1142,20 @@ def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=Non
                 final_obs_dict[k] = v
         else:
             final_obs_dict[k] = v
-    
+
     return final_obs_dict
-    
 
 
 import hydra
+
+
 @hydra.main(
     config_path="../../cfgs", config_name="launch", version_base=None
 )
 def main(cfg):
     a = RLBenchEnvFactory()._load_demos(cfg)
     pass
+
 
 if __name__ == "__main__":
     main()
