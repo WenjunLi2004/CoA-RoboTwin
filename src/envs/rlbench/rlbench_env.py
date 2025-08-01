@@ -85,13 +85,7 @@ class ActionModeType(Enum):
 
 ACTION_BOUNDS = {
     ActionModeType.ABS_END_EFFECTOR_POSE: (
-        #                 np.array(
-        #                     [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0], #
-        #                     dtype=np.float32,
-        #                 ),
-        #                 np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
-
-        np.array(  # 修改维度 8改为16
+        np.array(  # 修改维度8改为16
             # 左臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
             [-0.28, -0.66, 0.75] + 4 * [-1.0] + [0.0] +
             # 右臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
@@ -227,7 +221,7 @@ def _name_to_task_class(task_file: str):
 
 def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
     next_is_not_final = i == (len(demo) - 2)
-    # FIXME wenjun
+
     if i < (len(demo) - 2):
         current_left_gripper_open = True if obs.gripper_pose[7] > 0.5 else False
         current_right_gripper_open = True if obs.gripper_pose[15] > 0.5 else False
@@ -253,12 +247,7 @@ def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
              current_right_gripper_open == before_right_gripper_open and
              before2_right_gripper_open == before_right_gripper_open)
     )
-    # gripper_state_no_change = (
-    #         i < (len(demo) - 2) and
-    #         (obs.gripper_open == demo[i + 1].gripper_open and
-    #          obs.gripper_open == demo[i - 1].gripper_open and
-    #          demo[i - 2].gripper_open == demo[i - 1].gripper_open))
-    # )
+
     gripper_state_no_change = (
             i < (len(demo) - 2) and left_gripper_stopped and right_gripper_stopped
     )
@@ -288,8 +277,9 @@ def keypoint_discovery(
     """
     episode_keypoints = []
     if method == 'heuristic':
-        # prev_gripper_open = demo[0].gripper_open  FIXME wenjun
-        prev_left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False  # 区分左和右 FIXME wenjun
+
+        prev_left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False  # 区分左和右 
+
         prev_right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
 
         stopped_buffer = 0
@@ -298,24 +288,13 @@ def keypoint_discovery(
             stopped_buffer = 4 if stopped else stopped_buffer - 1
             # If change in gripper, or end of episode.
             last = i == (len(demo) - 1)
-            # FIXME wenjun
+
             left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False
             right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
-            # if i != 0 and (obs.gripper_open != prev_gripper_open or
-            #                last or stopped):
             if i != 0 and (
                     left_gripper_open != prev_left_gripper_open or right_gripper_open != prev_right_gripper_open or last or stopped):
                 episode_keypoints.append(i)
-            # prev_gripper_open = obs.gripper_open FIXME wenjun
-            prev_left_gripper_open = left_gripper_open
-            prev_right_gripper_open = right_gripper_open
-
-        if len(episode_keypoints) > 1 and (episode_keypoints[-1] - 1) == \
-                episode_keypoints[-2]:
-            episode_keypoints.pop(-2)
-        # print('Found %d keypoints.' % len(episode_keypoints),
-        #               episode_keypoints)
-        return episode_keypoints
+rn episode_keypoints
     elif method == "random":
         # Randomly select keypoints.
         episode_keypoints = np.random.choice(
@@ -793,9 +772,8 @@ class RLBenchEnvFactory(EnvFactory):
                     DemoStep(
                         timestep.joint_positions,
                         timestep.gripper_open,
-                        timestep.gripper_pose,  # FIXME wenjun 增加pose
-                        _extract_obs(timestep, cfg=cfg, action_space=self.get_action_space(cfg),
-                                     training=self.training),
+                        timestep.gripper_pose,  # 增加pose
+                        _extract_obs(timestep, cfg=cfg, action_space=self.get_action_space(cfg), training=self.training),
                         timestep.gripper_matrix,
                         timestep.misc,
                     )
@@ -1086,16 +1064,10 @@ def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=Non
     Optionally filter out point cloud data when training.
     '''
 
-    # Construct low-dimensional state data (joint positions + gripper state)
-    assert ActionModeType[cfg.env.action_mode] in [ActionModeType.ABS_END_EFFECTOR_POSE,
-                                                   ActionModeType.ABS_JOINT_POSITION], "Only ABS_END_EFFECTOR_POSE and ABS_JOINT_POSITION are supported now. Low dim state norm always use abs action space. It it gets wrong with DEL_END_EFFECTOR_POSE and DEL_JOINT_POSITION for current implementation."
-    if ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_END_EFFECTOR_POSE or ActionModeType[
-        cfg.env.action_mode] == ActionModeType.DEL_END_EFFECTOR_POSE:
-        # 对于双臂系统，使用16维的joint_positions而不是8维的gripper_pose
-        # joint_positions已经包含了双臂末端位姿+夹爪状态（16维）
+    # Construct low-dimensional state data (joint positions + gripper state
+    assert ActionModeType[cfg.env.action_mode] in [ActionModeType.ABS_END_EFFECTOR_POSE, ActionModeType.ABS_JOINT_POSITION], "Only ABS_END_EFFECTOR_POSE and ABS_JOINT_POSITION are supported now. Low dim state norm always use abs action space. It it gets wrong with DEL_END_EFFECTOR_POSE and DEL_JOINT_POSITION for current implementation."
+    if ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_END_EFFECTOR_POSE or ActionModeType[cfg.env.action_mode] == ActionModeType.DEL_END_EFFECTOR_POSE:
         low_dim_state = obs.gripper_pose.astype(np.float32)
-        print(f"Low dim state shape: {low_dim_state.shape}")
-        print(f"obs.gripper_pose shape: {obs.gripper_pose.shape}")
         low_dim_state = MinMaxNorm.normalize(low_dim_state, action_space)
     elif ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_JOINT_POSITION or ActionModeType[
         cfg.env.action_mode] == ActionModeType.DEL_JOINT_POSITION:

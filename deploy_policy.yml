@@ -1,0 +1,95 @@
+# Basic experiment configuration (keep unchanged)
+policy_name: CoA
+task_name: null
+task_config: null
+ckpt_setting: null
+seed: 0
+work_dir: /home/lumina/lumina/wenjun/RoboTwin/policy/CoA/exp_local/coa/rlbench_move_can_pot
+instruction_type: unseen
+
+# Add Parameters You Need
+# @package _global_
+method_name: coa
+method:
+  _target_: src.methods.coa.CoA
+  # general settings
+  lr: 1e-4
+  lr_backbone: 1e-5
+  weight_decay: 1e-4
+  num_train_steps: 50000
+  adaptive_lr: false
+  actor_grad_clip: 1.0
+  use_lang_cond: False
+
+  # coa-specific settings
+  action_order: REVERSE
+  action_sequence: variable # will be updated in the env wrapper, depends on the max sub-trajectory length
+  action_mode: ABS_END_EFFECTOR_POSE
+  execution_length: 1
+  action_padding: zero
+  keyframe_only: false
+  full_traj_training: false
+  keyframe_loss_weight: 1
+  execute_threshold: 0.01
+  mtp: true
+  traj_sample_margin: 0
+
+  # loss settings
+  latent_loss_type: l1
+  loss_type: l1
+
+  actor_model:
+    _target_: src.methods.coa.ActorModel
+    _partial_: true
+    hidden_dim: 512
+    enc_layers: 4
+    # Note: Although the original ACT implementation has 7 for `n_decoder_layers`, there is a bug in the code
+    # that means only the first layer is used in the original implementation. Here we modify it to 6 and plus 1 mtp layer, so it's 7 in total.
+    # See this issue https://github.com/tonyzhaozh/act/issues/25#issue-2258740521.
+    dec_layers: 6
+    dim_feedforward: 3200
+    dropout: 0.1
+    nheads: 8
+    nmtpheads: 2
+    num_queries: ${action_sequence}
+    pre_norm: true
+    state_dim: 16 # 从8改为16
+    action_dim: 16 # 从8改为16
+    use_lang_cond: false
+    action_order: REVERSE
+    execute_threshold: 0.01
+    execution_length: 1
+
+  encoder_model:
+    _target_: src.methods.coa.ImageEncoder
+    _partial_: true
+    input_shape: [4, 3, 128, 128]
+    hidden_dim: 512
+    position_embedding: "sine"
+    lr_backbone: 1e-5
+    masks: False
+    backbone: "resnet18"
+    dilation: False
+    use_frozen_bn: true
+    use_lang_cond: false
+
+# env
+pixels: true
+visual_observation_shape: [128, 128]
+env:
+  env_name: rlbench
+  task_name: ${task_name}
+  is_pkl: true
+  modality: rgb # pointcloud
+  action_mode: ABS_END_EFFECTOR_POSE
+  cameras: ["front", "overhead", "left_shoulder", "right_shoulder"]
+  renderer: opengl3
+  arm_max_velocity: 1.0
+  arm_max_acceleration: 4.0
+  episode_length: ${env.tasks.${env.task_name}.episode_length}
+  episode_length_decay_rate: 1
+  frame_stack: 1
+
+hydra:
+  run:
+    dir: ${exp_root}/exp_local/${method_name}/rlbench_${env.task_name}

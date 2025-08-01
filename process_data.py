@@ -95,7 +95,8 @@ def data_transform(path, episode_num, save_path):
                 prev_left_endpose = left_endpose_all[j - 1].astype(np.float32)
                 prev_right_endpose = right_endpose_all[j - 1].astype(np.float32)
 
-                # 时间步长（需要根据实际数据调整）
+                # 时间步长
+
                 dt = 0.02  # Aloha对应50Hz
 
                 joint_velocities = np.zeros(16, dtype=np.float32)
@@ -128,7 +129,7 @@ def data_transform(path, episode_num, save_path):
 
             joint_forces = np.zeros(16, dtype=np.float32)  # 力设为0
 
-            gripper_open = False  # FIXME 在后面设置中重新根据gripper_
+            gripper_open = False  # 在后面设置中重新根据gripper_pose来判断
 
             # gripper_pose 包含了双臂的所有末端执行器数据
             gripper_pose = np.zeros(16, dtype=np.float32)
@@ -164,7 +165,7 @@ def data_transform(path, episode_num, save_path):
                 overhead_depth=np.zeros(depth_shape, dtype=np.float32),
                 overhead_mask=np.zeros(mask_shape, dtype=np.uint8),
                 overhead_point_cloud=np.zeros(point_cloud_shape, dtype=np.float32),
-                wrist_rgb=camera_left_wrist_resized,  # 使用left_camera作为wrist_rgb（或者可以用front_camera）
+                wrist_rgb=camera_left_wrist_resized,  # 未使用,不包含在配置中
                 wrist_depth=np.zeros(depth_shape, dtype=np.float32),
                 wrist_mask=np.zeros(mask_shape, dtype=np.uint8),
                 wrist_point_cloud=np.zeros(point_cloud_shape, dtype=np.float32),
@@ -239,4 +240,3 @@ if __name__ == "__main__":
 
     print("\nProcessing complete.")
     print(f"Processed data saved to: {os.path.abspath(save_dir)}")
-    print("Please update your 'launch.yaml' to point 'dataset_root' to this directory.")
