@@ -118,8 +118,8 @@ class ActorModel(nn.Module):
         enc_layers: int = 4,
         dec_layers: int = 6,
         pre_norm: bool = True,
-        state_dim: int = 8,
-        action_dim: int = 8,
+        state_dim: int = 16, # 从8改为16
+        action_dim: int = 16, # 从8改回16
         num_queries: int = 100,
         use_lang_cond: bool = False,
         action_order: str = "FORWARD",
@@ -395,7 +395,9 @@ class CoA(BaseMethod):
             Tuple containing action predictions and other intermediate results
         '''
         raw_img = extract_many_from_batch(batch_input, 'rgb')
-        img = flatten_time_dim_into_channel_dim(stack_tensor_dictionary(raw_img, dim=1))
+        # FIXME 在评估时忽略展平操作
+        # img = flatten_time_dim_into_channel_dim(stack_tensor_dictionary(raw_img, dim=1))
+        img = stack_tensor_dictionary(raw_img, dim=1)
         proprio = batch_input['low_dim_state']
         if training:
             a_gt = batch_input['action']
