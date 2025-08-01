@@ -82,13 +82,22 @@ class ActionModeType(Enum):
     HYBRID = "hybrid"
 
 ACTION_BOUNDS = {
-    ActionModeType.ABS_END_EFFECTOR_POSE :(
-                    np.array(
-                        [-0.28, -0.66, 0.75] + 3 * [-1.0] + 2 * [0.0],
-                        dtype=np.float32,
-                    ),
-                    np.array([0.78, 0.66, 1.75] + 4 * [1.0] + [1.0], dtype=np.float32),
-                ),
+    ActionModeType.ABS_END_EFFECTOR_POSE: (
+        np.array(  # 修改维度8改为16
+            # 左臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [-0.28, -0.66, 0.75] + 4 * [-1.0] + [0.0] +
+            # 右臂：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [-0.28, -0.66, 0.75] + 4 * [-1.0] + [0.0],
+            dtype=np.float32,
+        ),
+        np.array(
+            # 左臂上界：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [0.78, 0.66, 1.75] + 4 * [1.0] + [1.0] +
+            # 右臂上界：位置(3) + 姿态(4) + 夹爪(1) = 8维
+            [0.78, 0.66, 1.75] + 4 * [1.0] + [1.0],
+            dtype=np.float32
+        ),
+    ),
     ActionModeType.ABS_JOINT_POSITION: (
                     np.array(7 * [-np.pi] + [0.0], dtype=np.float32), #  I'm not sure, to be fixed
                     np.array(7 * [np.pi] + [1.0], dtype=np.float32),
@@ -173,7 +182,7 @@ def _observation_config_to_gym_space(observation_config, action_mode_type) -> sp
     if action_mode_type == ActionModeType.HYBRID:
          robot_state_len = 15
     elif action_mode_type == ActionModeType.ABS_JOINT_POSITION or action_mode_type == ActionModeType.ABS_END_EFFECTOR_POSE:
-        robot_state_len = 8
+        robot_state_len = 16  # 8改为16
     if robot_state_len > 0:
         space_dict["low_dim_state"] = spaces.Box(
             -np.inf, np.inf, shape=(robot_state_len,), dtype=np.float32
@@ -182,7 +191,7 @@ def _observation_config_to_gym_space(observation_config, action_mode_type) -> sp
         (observation_config.left_shoulder_camera, "left_shoulder"),
         (observation_config.right_shoulder_camera, "right_shoulder"),
         (observation_config.front_camera, "front"),
-        (observation_config.wrist_camera, "wrist"),
+        # (observation_config.wrist_camera, "wrist"), # 注释了一个摄像头
         (observation_config.overhead_camera, "overhead"),
     ]:
         space_dict.update(_get_cam_observation_elements(cam, name))
@@ -212,11 +221,34 @@ def _name_to_task_class(task_file: str):
 
 def _is_stopped(demo, i, obs, stopped_buffer, delta=0.1):
     next_is_not_final = i == (len(demo) - 2)
-    gripper_state_no_change = (
+    if i < (len(demo) - 2):
+        current_left_gripper_open = True if obs.gripper_pose[7] > 0.5 else False
+        current_right_gripper_open = True if obs.gripper_pose[15] > 0.5 else False
+        next_left_gripper_open = True if demo[i + 1].gripper_pose[7] > 0.5 else False
+        next_right_gripper_open = True if demo[i + 1].gripper_pose[15] > 0.5 else False
+        before_left_gripper_open = True if demo[i - 1].gripper_pose[7] > 0.5 else False
+        before_right_gripper_open = True if demo[i - 1].gripper_pose[15] > 0.5 else False
+        before2_left_gripper_open = True if demo[i - 2].gripper_pose[7] > 0.5 else False
+        before2_right_gripper_open = True if demo[i - 2].gripper_pose[15] > 0.5 else False
+
+    # 判断左臂停止
+
+    left_gripper_stopped = (
             i < (len(demo) - 2) and
-            (obs.gripper_open == demo[i + 1].gripper_open and
-             obs.gripper_open == demo[i - 1].gripper_open and
-             demo[i - 2].gripper_open == demo[i - 1].gripper_open))
+            (current_left_gripper_open == next_left_gripper_open and
+             current_left_gripper_open == before_left_gripper_open and
+             before2_left_gripper_open == before_left_gripper_open)
+    )
+    # 判断右臂停止
+    right_gripper_stopped = (
+            i < (len(demo) - 2) and
+            (current_right_gripper_open == next_right_gripper_open and
+             current_right_gripper_open == before_right_gripper_open and
+             before2_right_gripper_open == before_right_gripper_open)
+    )
+    gripper_state_no_change = (
+            i < (len(demo) - 2) and left_gripper_stopped and right_gripper_stopped
+    )
     small_delta = np.allclose(obs.joint_velocities, 0, atol=delta)
     stopped = (stopped_buffer <= 0 and small_delta and
                (not next_is_not_final) and gripper_state_no_change)
@@ -243,17 +275,24 @@ def keypoint_discovery(
     """
     episode_keypoints = []
     if method == 'heuristic':
-        prev_gripper_open = demo[0].gripper_open
+        # prev_gripper_open = demo[0].gripper_open 
+        prev_left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False  # 区分左和右 
+        prev_right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
+
         stopped_buffer = 0
         for i, obs in enumerate(demo):
             stopped = _is_stopped(demo, i, obs, stopped_buffer, stopping_delta)
             stopped_buffer = 4 if stopped else stopped_buffer - 1
             # If change in gripper, or end of episode.
             last = i == (len(demo) - 1)
-            if i != 0 and (obs.gripper_open != prev_gripper_open or
-                           last or stopped):
+            left_gripper_open = True if demo[0].gripper_pose[7] > 0.5 else False
+            right_gripper_open = True if demo[0].gripper_pose[15] > 0.5 else False
+            if i != 0 and (
+                    left_gripper_open != prev_left_gripper_open or right_gripper_open != prev_right_gripper_open or last or stopped):
                 episode_keypoints.append(i)
-            prev_gripper_open = obs.gripper_open
+            prev_left_gripper_open = left_gripper_open
+            prev_right_gripper_open = right_gripper_open
+
         if len(episode_keypoints) > 1 and (episode_keypoints[-1] - 1) == \
                 episode_keypoints[-2]:
             episode_keypoints.pop(-2)
@@ -743,6 +782,7 @@ class RLBenchEnvFactory(EnvFactory):
                     DemoStep(
                         timestep.joint_positions,
                         timestep.gripper_open,
+                        timestep.gripper_pose,  # 增加pose
                         _extract_obs(timestep, cfg=cfg, action_space=self.get_action_space(cfg), training=self.training),
                         timestep.gripper_matrix,
                         timestep.misc,
@@ -980,21 +1020,31 @@ def observations_to_action_abs_ee(
             outside action_space.
     """
 
-    action_trans = current_observation.gripper_matrix[:3, 3]
+    # 从gripper_pose直接提取双臂数据（16维）
+    # gripper_pose结构：[left_endpose(7) + left_gripper(1) + right_endpose(7) + right_gripper(1)]
+    gripper_pose = current_observation.gripper_pose  # 16维数组
 
-    rot = R.from_matrix(current_observation.gripper_matrix[:3, :3])
-    action_orien = rot.as_quat(
-        canonical=True
-    )  # Enforces w component always positive and unit vector
+    # 左臂动作提取
+    left_action_trans = gripper_pose[:3]  # 左臂位置 (x,y,z)
+    left_action_orien = gripper_pose[3:7]  # 左臂四元数 (qx,qy,qz,qw)
+    left_action_gripper = [gripper_pose[7]]  # 左臂夹爪状态
 
-    action_gripper = [1.0 if current_observation.gripper_open == 1 else 0.0]
-    action = np.concatenate(
-        [
-            action_trans,
-            action_orien,
-            action_gripper,
-        ]
-    )
+    # 右臂动作提取
+    right_action_trans = gripper_pose[8:11]  # 右臂位置 (x,y,z)
+    right_action_orien = gripper_pose[11:15]  # 右臂四元数 (qx,qy,qz,qw)
+    right_action_gripper = [gripper_pose[15]]  # 右臂夹爪状态
+
+    # 组合成16维双臂动作
+    action = np.concatenate([
+        # 左臂8维
+        left_action_trans,  # 3维
+        left_action_orien,  # 4维
+        left_action_gripper,  # 1维
+        # 右臂8维
+        right_action_trans,  # 3维
+        right_action_orien,  # 4维
+        right_action_gripper,  # 1维
+    ])
 
     action_space = ACTION_BOUNDS[ActionModeType.ABS_END_EFFECTOR_POSE]
 
@@ -1021,7 +1071,7 @@ def _extract_obs(obs: Observation, observation_config=None, robot_state_keys=Non
     # Construct low-dimensional state data (joint positions + gripper state)
     assert ActionModeType[cfg.env.action_mode] in [ActionModeType.ABS_END_EFFECTOR_POSE, ActionModeType.ABS_JOINT_POSITION], "Only ABS_END_EFFECTOR_POSE and ABS_JOINT_POSITION are supported now. Low dim state norm always use abs action space. It it gets wrong with DEL_END_EFFECTOR_POSE and DEL_JOINT_POSITION for current implementation."
     if ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_END_EFFECTOR_POSE or ActionModeType[cfg.env.action_mode] == ActionModeType.DEL_END_EFFECTOR_POSE:
-        low_dim_state = np.concatenate([obs.gripper_pose,[obs.gripper_open]],dtype=np.float32)
+        low_dim_state = obs.gripper_pose.astype(np.float32)
         low_dim_state = MinMaxNorm.normalize(low_dim_state, action_space)
     elif ActionModeType[cfg.env.action_mode] == ActionModeType.ABS_JOINT_POSITION or ActionModeType[cfg.env.action_mode] == ActionModeType.DEL_JOINT_POSITION:
         low_dim_state = np.concatenate([obs.joint_positions,[obs.gripper_open]],dtype=np.float32)

@@ -10,6 +10,7 @@ import cv2
 import argparse
 import pdb
 import json
+from scipy.spatial.transform import Rotation
 from rlbench.demo import Demo
 from rlbench.backend.observation import Observation
 
@@ -94,22 +95,44 @@ def data_transform(path, episode_num, save_path):
             
             # 计算关节速度（通过时间差分）
             if j > 0:
-                prev_left_endpose = left_endpose_all[j-1].astype(np.float32)
-                prev_right_endpose = right_endpose_all[j-1].astype(np.float32)
+                prev_left_endpose = left_endpose_all[j - 1].astype(np.float32)
+                prev_right_endpose = right_endpose_all[j - 1].astype(np.float32)
+
+                # 时间步长
+                dt = 0.02  # Aloha对应50Hz
+
                 joint_velocities = np.zeros(16, dtype=np.float32)
-                joint_velocities[:7] = left_endpose - prev_left_endpose
-                joint_velocities[7] = left_gripper_all[j] - left_gripper_all[j-1]
-                joint_velocities[8:15] = right_endpose - prev_right_endpose
-                joint_velocities[15] = right_gripper_all[j] - right_gripper_all[j-1]
+
+                # 左臂线性速度
+                joint_velocities[:3] = (left_endpose[:3] - prev_left_endpose[:3]) / dt
+
+                # 左臂角速度
+                left_rot_prev = Rotation.from_quat(prev_left_endpose[3:7])
+                left_rot_curr = Rotation.from_quat(left_endpose[3:7])
+                left_rot_diff = left_rot_curr * left_rot_prev.inv()
+                joint_velocities[3:6] = left_rot_diff.as_rotvec() / dt
+
+                # 左夹爪速度
+                joint_velocities[7] = (left_gripper_all[j] - left_gripper_all[j - 1]) / dt
+
+                # 右臂线性速度
+                joint_velocities[8:11] = (right_endpose[:3] - prev_right_endpose[:3]) / dt
+
+                # 右臂角速度
+                right_rot_prev = Rotation.from_quat(prev_right_endpose[3:7])
+                right_rot_curr = Rotation.from_quat(right_endpose[3:7])
+                right_rot_diff = right_rot_curr * right_rot_prev.inv()
+                joint_velocities[11:14] = right_rot_diff.as_rotvec() / dt
+
+                # 右夹爪速度
+                joint_velocities[15] = (right_gripper_all[j] - right_gripper_all[j - 1]) / dt
             else:
                 joint_velocities = np.zeros(16, dtype=np.float32)
             
             joint_forces = np.zeros(16, dtype=np.float32)  # 力设为0
-            
-            gripper_open = False # FIXME 在后面设置中重新根据gripper_
-            
 
-            
+            gripper_open = False  # 在后面设置中重新根据gripper_pose来判断
+
             # gripper_pose 包含了双臂的所有末端执行器数据
             gripper_pose = np.zeros(16, dtype=np.float32)
             gripper_pose[:7] = left_endpose           # 左臂末端位姿 7维 (x,y,z,qx,qy,qz,qw)
@@ -144,7 +167,7 @@ def data_transform(path, episode_num, save_path):
                 overhead_depth=np.zeros(depth_shape, dtype=np.float32),
                 overhead_mask=np.zeros(mask_shape, dtype=np.uint8),
                 overhead_point_cloud=np.zeros(point_cloud_shape, dtype=np.float32),
-                wrist_rgb=camera_left_wrist_resized,  # 使用left_camera作为wrist_rgb（或者可以用front_camera）
+                wrist_rgb=camera_left_wrist_resized,  # 未使用,不包含在配置中
                 wrist_depth=np.zeros(depth_shape, dtype=np.float32),
                 wrist_mask=np.zeros(mask_shape, dtype=np.uint8),
                 wrist_point_cloud=np.zeros(point_cloud_shape, dtype=np.float32),
@@ -219,4 +242,3 @@ if __name__ == "__main__":
 
     print("\nProcessing complete.")
     print(f"Processed data saved to: {os.path.abspath(save_dir)}")
-    print("Please update your 'launch.yaml' to point 'dataset_root' to this directory.")
