@@ -1020,30 +1020,28 @@ def observations_to_action_abs_ee(
             outside action_space.
     """
 
-    # 从gripper_pose直接提取双臂数据（16维）
-    # gripper_pose结构：[left_endpose(7) + left_gripper(1) + right_endpose(7) + right_gripper(1)]
-    gripper_pose = current_observation.gripper_pose  # 16维数组
-
-    # 左臂动作提取
-    left_action_trans = gripper_pose[:3]  # 左臂位置 (x,y,z)
-    left_action_orien = gripper_pose[3:7]  # 左臂四元数 (qx,qy,qz,qw)
-    left_action_gripper = [gripper_pose[7]]  # 左臂夹爪状态
-
-    # 右臂动作提取
-    right_action_trans = gripper_pose[8:11]  # 右臂位置 (x,y,z)
-    right_action_orien = gripper_pose[11:15]  # 右臂四元数 (qx,qy,qz,qw)
-    right_action_gripper = [gripper_pose[15]]  # 右臂夹爪状态
+    gripper_matrix = current_observation.gripper_matrix    
+    # 还原左臂数据
+    left_position = gripper_matrix[:3, 3]  # 提取左臂位置
+    left_rotation_matrix = gripper_matrix[:3, :3]  # 提取左臂旋转矩阵
+    left_quaternion = R.from_matrix(left_rotation_matrix).as_quat(canonical=True)  # 转换为四元数
+    left_gripper_state = gripper_matrix[3, 3]  # 提取左臂夹爪状态
+    # 还原右臂数据
+    right_position = gripper_matrix[4:7, 7]  # 提取右臂位置
+    right_rotation_matrix = gripper_matrix[4:7, 4:7]  # 提取右臂旋转矩阵
+    right_quaternion = R.from_matrix(right_rotation_matrix).as_quat(canonical=True)  # 转换为四元数
+    right_gripper_state = gripper_matrix[7, 7]  # 提取右臂夹爪状态
 
     # 组合成16维双臂动作
     action = np.concatenate([
         # 左臂8维
-        left_action_trans,  # 3维
-        left_action_orien,  # 4维
-        left_action_gripper,  # 1维
+        left_position,  # 3维
+        left_quaternion,  # 4维
+        left_gripper_state,  # 1维
         # 右臂8维
-        right_action_trans,  # 3维
-        right_action_orien,  # 4维
-        right_action_gripper,  # 1维
+        right_position,  # 3维
+        right_quaternion,  # 4维
+        right_gripper_state,  # 1维
     ])
 
     action_space = ACTION_BOUNDS[ActionModeType.ABS_END_EFFECTOR_POSE]

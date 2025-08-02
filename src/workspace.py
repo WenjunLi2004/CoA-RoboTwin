@@ -166,9 +166,10 @@ class Workspace:
             #     updated_metrics = self.vis()
             #     self.logger.log_metrics(updated_metrics, step=self._current_step)
 
-            if self._current_step % self.cfg.eval_every_steps == 0:
-                updated_metrics = self.eval()
-                self.logger.log_metrics(updated_metrics, step=self._current_step)
+            # 没有预存评估数据集,注释不影响训练
+            # if self._current_step % self.cfg.eval_every_steps == 0:
+            #     updated_metrics = self.eval()
+            #     self.logger.log_metrics(updated_metrics, step=self._current_step)
 
             if self._current_step % self.cfg.save_every_steps == 0:
                 self.save_snapshot()

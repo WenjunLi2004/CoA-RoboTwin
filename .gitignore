@@ -82,3 +82,5 @@ coverage.xml
 logs/ 
 exp_local/
 wandb/
+obs.txt
+test.py
