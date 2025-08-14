@@ -63,8 +63,8 @@ method:
     nmtpheads: 2
     num_queries: ${action_sequence}
     pre_norm: true
-    state_dim: 8 
-    action_dim: 8 
+    state_dim: 16 # FIXME
+    action_dim: 16 # FIXME
     use_lang_cond: false
     action_order: REVERSE
     execute_threshold: 0.01

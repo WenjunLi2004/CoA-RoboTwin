@@ -58,7 +58,7 @@ def encode_obs(observation):  # 后处理观测数据
                 
             obs[coa_key] = img_resized
      
-    state_data = observation["endpose"]["left_endpose"] + [observation["endpose"]["left_gripper"]] 
+    state_data = observation["endpose"]["left_endpose"] + [observation["endpose"]["left_gripper"]] + observation["endpose"]["right_endpose"] + [observation["endpose"]["right_gripper"]]
     
     state_tensor = torch.tensor(state_data, dtype=torch.float32)
     if state_tensor.dim() == 1:

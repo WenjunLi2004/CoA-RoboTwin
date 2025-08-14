@@ -26,6 +26,7 @@ def load_hdf5(dataset_path):
             root["/endpose/left_gripper"][()],
         )
 
+
         right_endpose, right_gripper = (
             root["/endpose/right_endpose"][()],
             root["/endpose/right_gripper"][()],
@@ -35,6 +36,8 @@ def load_hdf5(dataset_path):
             image_dict[cam_name] = root[f"/observation/{cam_name}/rgb"][()]
 
     return left_endpose, left_gripper, right_endpose, right_gripper, image_dict
+
+
 
 
 def data_transform(path, episode_num, save_path):
@@ -62,71 +65,89 @@ def data_transform(path, episode_num, save_path):
     for i in range(episode_num):
         left_endpose_all, left_gripper_all, right_endpose_all, right_gripper_all, image_dict = (load_hdf5(
             os.path.join(path, f"episode{i}.hdf5")))
-
+        
         # Create list to hold observations for this episode
         observations = []
-        gripper_pose = []
-        for j in range(0,left_gripper_all.shape[0]):
+
+        for j in range(left_gripper_all.shape[0]):
             # Decode images
-            if j != left_gripper_all.shape[0] - 1:
-                camera_high_bits = image_dict["head_camera"][j]
-                camera_high = cv2.imdecode(np.frombuffer(camera_high_bits, np.uint8), cv2.IMREAD_COLOR)
-                camera_high_resized = cv2.resize(camera_high, (128, 128))
+            camera_high_bits = image_dict["head_camera"][j]
+            camera_high = cv2.imdecode(np.frombuffer(camera_high_bits, np.uint8), cv2.IMREAD_COLOR)
+            camera_high_resized = cv2.resize(camera_high, (128, 128))
 
-                camera_right_wrist_bits = image_dict["right_camera"][j]
-                camera_right_wrist = cv2.imdecode(np.frombuffer(camera_right_wrist_bits, np.uint8), cv2.IMREAD_COLOR)
-                camera_right_wrist_resized = cv2.resize(camera_right_wrist, (128, 128))
+            camera_right_wrist_bits = image_dict["right_camera"][j]
+            camera_right_wrist = cv2.imdecode(np.frombuffer(camera_right_wrist_bits, np.uint8), cv2.IMREAD_COLOR)
+            camera_right_wrist_resized = cv2.resize(camera_right_wrist, (128, 128))
 
-                camera_left_wrist_bits = image_dict["left_camera"][j]
-                camera_left_wrist = cv2.imdecode(np.frombuffer(camera_left_wrist_bits, np.uint8), cv2.IMREAD_COLOR)
-                camera_left_wrist_resized = cv2.resize(camera_left_wrist, (128, 128))
+            camera_left_wrist_bits = image_dict["left_camera"][j]
+            camera_left_wrist = cv2.imdecode(np.frombuffer(camera_left_wrist_bits, np.uint8), cv2.IMREAD_COLOR)
+            camera_left_wrist_resized = cv2.resize(camera_left_wrist, (128, 128))
 
-                camera_front_bits = image_dict["front_camera"][j]
-                camera_front = cv2.imdecode(np.frombuffer(camera_front_bits, np.uint8), cv2.IMREAD_COLOR)
-                camera_front_resized = cv2.resize(camera_front, (128, 128))
+            camera_front_bits = image_dict["front_camera"][j]
+            camera_front = cv2.imdecode(np.frombuffer(camera_front_bits, np.uint8), cv2.IMREAD_COLOR)
+            camera_front_resized = cv2.resize(camera_front, (128, 128))
 
-                # 处理双臂末端执行器数据
-                left_endpose = left_endpose_all[j].astype(np.float32)   # 左臂末端位姿 (7维: x,y,z,qx,qy,qz,qw)
-                # gripper_pose 包含了双臂的所有末端执行器数据
-                gripper_pose = np.zeros(7, dtype=np.float32)
-                gripper_pose[:7] = left_endpose           # 左臂末端位姿 7维 (x,y,z,qx,qy,qz,qw)
-                gripper_open = True if left_gripper_all[j] > 0.5 else False  
-                # 计算关节速度（通过时间差分）
-                if j > 0:
-                    prev_left_endpose = left_endpose_all[j - 1].astype(np.float32)
+            # 处理双臂末端执行器数据
+            left_endpose = left_endpose_all[j].astype(np.float32)   # 左臂末端位姿 (7维: x,y,z,qx,qy,qz,qw)
+            right_endpose = right_endpose_all[j].astype(np.float32) # 右臂末端位姿 (7维: x,y,z,qx,qy,qz,qw)
+            # EE模式下未使用,置零
+            joint_positions = np.zeros(16, dtype=np.float32)  # 初始化关节位置
+            
+            # 计算关节速度（通过时间差分）
+            if j > 0:
+                prev_left_endpose = left_endpose_all[j - 1].astype(np.float32)
+                prev_right_endpose = right_endpose_all[j - 1].astype(np.float32)
 
-                    # 时间步长
-                    dt = 0.02  # Aloha对应50Hz
+                # 时间步长
+                dt = 0.02  # Aloha对应50Hz
 
-                    joint_velocities = np.zeros(8, dtype=np.float32)
+                joint_velocities = np.zeros(16, dtype=np.float32)
 
-                    # 左臂线性速度
-                    joint_velocities[:3] = (left_endpose[:3] - prev_left_endpose[:3]) / dt
+                # 左臂线性速度
+                joint_velocities[:3] = (left_endpose[:3] - prev_left_endpose[:3]) / dt
 
-                    # 左臂角速度
-                    left_rot_prev = Rotation.from_quat(prev_left_endpose[3:7])
-                    left_rot_curr = Rotation.from_quat(left_endpose[3:7])
-                    left_rot_diff = left_rot_curr * left_rot_prev.inv()
-                    joint_velocities[3:6] = left_rot_diff.as_rotvec() / dt
+                # 左臂角速度
+                left_rot_prev = Rotation.from_quat(prev_left_endpose[3:7])
+                left_rot_curr = Rotation.from_quat(left_endpose[3:7])
+                left_rot_diff = left_rot_curr * left_rot_prev.inv()
+                joint_velocities[3:6] = left_rot_diff.as_rotvec() / dt
 
-                else:
-                    joint_velocities = np.zeros(16, dtype=np.float32)
-                
-                # gripper_matrix 作为 动作预测
-                # 创建8x8矩阵来容纳双臂数据
-                gripper_matrix = np.zeros((4, 4), dtype=np.float32)
-                # 左臂齐次变换矩阵 (4x4)
-                left_transform = np.eye(4, dtype=np.float32)
-                left_transform[:3, :3] = Rotation.from_quat(left_endpose[3:7]).as_matrix()  # 旋转
-                left_transform[:3, 3] = left_endpose[:3]  # 位置
-                gripper_matrix[:4, :4] = left_transform
-                gripper_matrix[3, 3] = left_gripper_all[j]  # 覆盖(3,3)位置存储夹爪状态
+                # 左夹爪速度
+                joint_velocities[7] = (left_gripper_all[j] - left_gripper_all[j - 1]) / dt
+
+                # 右臂线性速度
+                joint_velocities[8:11] = (right_endpose[:3] - prev_right_endpose[:3]) / dt
+
+                # 右臂角速度
+                right_rot_prev = Rotation.from_quat(prev_right_endpose[3:7])
+                right_rot_curr = Rotation.from_quat(right_endpose[3:7])
+                right_rot_diff = right_rot_curr * right_rot_prev.inv()
+                joint_velocities[11:14] = right_rot_diff.as_rotvec() / dt
+
+                # 右夹爪速度
+                joint_velocities[15] = (right_gripper_all[j] - right_gripper_all[j - 1]) / dt
+            else:
+                joint_velocities = np.zeros(16, dtype=np.float32)
+            
+            joint_forces = np.zeros(16, dtype=np.float32)  # 力设为0
+
+            gripper_open = False  # 在后面设置中重新根据gripper_pose来判断
+
+            # gripper_pose 包含了双臂的所有末端执行器数据
+            gripper_pose = np.zeros(16, dtype=np.float32)
+            gripper_pose[:7] = left_endpose           # 左臂末端位姿 7维 (x,y,z,qx,qy,qz,qw)
+            gripper_pose[7] = left_gripper_all[j]     # 左夹爪 1维
+            gripper_pose[8:15] = right_endpose        # 右臂末端位姿 7维 (x,y,z,qx,qy,qz,qw)
+            gripper_pose[15] = right_gripper_all[j]   # 右夹爪 1维
+            
+            # gripper_matrix 处理为 直接使用 gripper_pose
+            gripper_matrix = np.eye(4, dtype=np.float32)
+             
             # 以下变量未在训练中使用
             gripper_joint_positions = np.zeros(2, dtype=np.float32)
-            joint_positions = np.zeros(8, dtype=np.float32)  # 初始化关节位置
             gripper_touch_forces = np.zeros(6, dtype=np.float32)
             task_low_dim_state = np.zeros(70, dtype=np.float32)
-            joint_forces = np.zeros(16, dtype=np.float32)  # 力设为0
+            
             # 准备深度图和掩码（如果没有实际数据，使用零数组）
             depth_shape = (128, 128)
             mask_shape = (128, 128)
