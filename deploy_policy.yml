@@ -4,8 +4,18 @@ task_name: null
 task_config: null
 ckpt_setting: null
 seed: 0
-work_dir: /home/lumina/lumina/wenjun/RoboTwin/policy/CoA/exp_local/coa/rlbench_move_can_pot
+work_dir: /home/lumina/lumina/wenjun/RoboTwin/policy/CoA/exp_local/coa/rlbench_move_can_pot_single
 instruction_type: unseen
+exp_root: .
+# Universal settings
+num_train_steps: 20000
+eval_every_steps: 10000
+vis_every_steps: 2000
+save_every_steps: 10000
+num_eval_episodes: 25 
+update_every_steps: 1
+snapshot: null
+tag: null
 
 # Add Parameters You Need
 # @package _global_
@@ -25,7 +35,7 @@ method:
   action_order: REVERSE
   action_sequence: variable # will be updated in the env wrapper, depends on the max sub-trajectory length
   action_mode: ABS_END_EFFECTOR_POSE
-  execution_length: 1
+  execution_length: 1 
   action_padding: zero
   keyframe_only: false
   full_traj_training: false
@@ -53,12 +63,12 @@ method:
     nmtpheads: 2
     num_queries: ${action_sequence}
     pre_norm: true
-    state_dim: 16 # 从8改为16
-    action_dim: 16 # 从8改为16
+    state_dim: 8 
+    action_dim: 8 
     use_lang_cond: false
     action_order: REVERSE
     execute_threshold: 0.01
-    execution_length: 1
+    execution_length: 1 
 
   encoder_model:
     _target_: src.methods.coa.ImageEncoder
@@ -89,7 +99,10 @@ env:
   episode_length: ${env.tasks.${env.task_name}.episode_length}
   episode_length_decay_rate: 1
   frame_stack: 1
-
+  # temporal_ensemble: false
+  tasks:
+    move_can_pot:
+      episode_length: 300
 hydra:
   run:
     dir: ${exp_root}/exp_local/${method_name}/rlbench_${env.task_name}

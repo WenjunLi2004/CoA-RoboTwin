@@ -1,4 +1,3 @@
-
 defaults:
   - base: base_config
   - env: rlbench
@@ -17,7 +16,6 @@ snapshot: null
 tag: null
 exp_root: .
 
-
 # dataloader settings
 batch_size: 128
 num_workers: 0
@@ -26,11 +24,13 @@ persistent_workers: true
 prefetch_factor: 0
 
 # data settings
-task: null
+task_name: null
+task_config: null
+expert_data_num: null
 demos: 100
-dataset_root: data/rlbench
-dataset_root_train: ${dataset_root}/train
-dataset_root_eval: ${dataset_root}/eval
+dataset_path: ${dataset_root}/sim-${task_name}/${task_config}-${expert_data_num}
+dataset_root_train: ${dataset_path}
+dataset_root_eval: ${dataset_path}
 
 # env
 pixels: true
@@ -41,7 +41,7 @@ env:
   is_pkl: true
   modality: rgb # pointcloud 
   action_mode: ABS_END_EFFECTOR_POSE
-  cameras: ["front", "wrist", "left_shoulder", "right_shoulder"]
+  cameras: ["front", "overhead", "left_shoulder", "right_shoulder"]
   renderer: opengl3
   arm_max_velocity: 1.0
   arm_max_acceleration: 4.0
@@ -51,6 +51,4 @@ env:
 
 hydra:
   run:
-    dir: ${exp_root}/exp_local/${method_name}/rlbench_${env.task_name}_${now:%Y%m%d%H%M%S}
-
-
+    dir: ${exp_root}/exp_local/${method_name}/rlbench_${env.task_name}

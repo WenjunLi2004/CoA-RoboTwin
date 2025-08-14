@@ -45,8 +45,8 @@ method:
     nmtpheads: 2
     num_queries: ${action_sequence}
     pre_norm: true
-    state_dim: 8
-    action_dim: 8
+    state_dim: 16 # FIXME 双臂维度为16
+    action_dim: 16 # FIXME 双臂维度为16
     use_lang_cond: ${method.use_lang_cond}
     action_order: ${method.action_order}
     execute_threshold: ${method.execute_threshold}
